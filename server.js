@@ -196,10 +196,8 @@ app.post('/api/execute', (req, res) => {
         const script = req.body || "";
         if (targetUser) {
             userScripts[targetUser] = script;
-            console.log(`📝 Script stored for user: ${targetUser}, length: ${script.length}`);
         } else {
             latestScript = script;
-            console.log('📝 Script stored globally');
         }
         res.send('OK');
     } catch (e) {
