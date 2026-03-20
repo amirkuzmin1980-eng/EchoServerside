@@ -7,7 +7,7 @@ const app = express();
 const users = {};          // username -> { passwordHash, isAdmin, usedKey }
 const keys = {};           // key -> { usedBy: username or null }
 const sessions = {};       // token -> username
-const gamesMap = {};       // gameId -> game data (accumulated from all Roblox instances)
+const gamesMap = {};       // gameId -> { name, placeId, players, servers: [serverId], lastSeen }
 
 function hashPassword(pw) {
     return crypto.createHash('sha256').update(pw).digest('hex');
@@ -58,10 +58,23 @@ users['tr0llzkidd'] = {
     usedKey: adminKey
 };
 keys[adminKey] = { usedBy: 'tr0llzkidd' };
-console.log(`Admin key (for reference): ${adminKey}`);
+console.log(`Admin key: ${adminKey}`);
 
 let targetUsername = "";
 let latestScript = "";
+
+// Clean up stale servers every 30 seconds
+setInterval(() => {
+    const now = Date.now();
+    for (const gameId in gamesMap) {
+        const game = gamesMap[gameId];
+        // Remove servers that haven't reported for >30 seconds
+        game.servers = game.servers.filter(srv => now - srv.lastSeen < 30000);
+        if (game.servers.length === 0) {
+            delete gamesMap[gameId];
+        }
+    }
+}, 30000);
 
 // ========== Public endpoints ==========
 app.post('/api/register', (req, res) => {
@@ -122,12 +135,32 @@ app.post('/api/games/update', (req, res) => {
         const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
         const incomingGames = data.games || [];
         
-        // Update or add each game
         incomingGames.forEach(game => {
-            if (game.id && parseInt(game.players) > 0) {
-                gamesMap[game.id] = game; // store full game object (includes name, id, placeId, players)
-            } else if (game.id && parseInt(game.players) === 0) {
-                delete gamesMap[game.id]; // remove if zero players
+            if (!game.id) return;
+            
+            const now = Date.now();
+            if (!gamesMap[game.id]) {
+                gamesMap[game.id] = {
+                    name: game.name,
+                    placeId: game.placeId,
+                    players: game.players,        // global player count from Roblox API
+                    servers: []
+                };
+            }
+            const entry = gamesMap[game.id];
+            // Update game info (name might change, etc.)
+            entry.name = game.name;
+            entry.placeId = game.placeId;
+            entry.players = game.players;          // use the global count sent by the server
+            // Keep track of this server instance
+            const existingServer = entry.servers.find(s => s.id === game.serverId);
+            if (existingServer) {
+                existingServer.lastSeen = now;
+            } else {
+                entry.servers.push({
+                    id: game.serverId,
+                    lastSeen: now
+                });
             }
         });
         
@@ -139,11 +172,17 @@ app.post('/api/games/update', (req, res) => {
 });
 
 app.get('/api/games', (req, res) => {
-    const gamesList = Object.values(gamesMap);
-    const totalPlayers = gamesList.reduce((sum, g) => sum + (parseInt(g.players) || 0), 0);
+    const gamesList = Object.values(gamesMap).map(game => ({
+        id: Object.keys(gamesMap).find(k => gamesMap[k] === game), // crude, but works
+        name: game.name,
+        placeId: game.placeId,
+        players: game.players,          // this is already the global total
+        servers: game.servers.length
+    }));
+    
     res.json({
         total: gamesList.length,
-        players: totalPlayers,
+        players: gamesList.reduce((sum, g) => sum + (g.players || 0), 0),
         games: gamesList
     });
 });
