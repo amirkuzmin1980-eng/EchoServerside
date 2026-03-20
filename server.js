@@ -8,7 +8,8 @@ const users = {};
 const keys = {};
 const sessions = {};
 const gamesMap = {};
-const userScripts = {};
+const userScripts = {};     // username -> script
+const playerConnections = {}; // gameId -> { serverId: [userIds] } (optional)
 
 function hashPassword(pw) {
     return crypto.createHash('sha256').update(pw).digest('hex');
@@ -177,6 +178,28 @@ app.get('/api/games', (req, res) => {
         players: gamesList.reduce((sum, g) => sum + (g.players || 0), 0),
         games: gamesList
     });
+});
+
+// ========== Player connection logging (optional) ==========
+app.post('/api/connect-game', (req, res) => {
+    try {
+        const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        // You can store connections if needed; for now just log
+        console.log(`[CONNECT] User ${data.roblox_userid} joined game ${data.game_id} (job ${data.job_id})`);
+        res.send('OK');
+    } catch (e) {
+        res.status(200).send('OK');
+    }
+});
+
+app.post('/api/disconnect-game', (req, res) => {
+    try {
+        const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        console.log(`[DISCONNECT] User ${data.roblox_userid} left game ${data.game_id}`);
+        res.send('OK');
+    } catch (e) {
+        res.status(200).send('OK');
+    }
 });
 
 // ========== Settings / GUI endpoints ==========
