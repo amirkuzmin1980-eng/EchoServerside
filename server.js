@@ -4,11 +4,11 @@ const crypto = require('crypto');
 const app = express();
 
 // In‑memory stores
-const users = {};          // username -> { passwordHash, isAdmin, usedKey }
-const keys = {};           // key -> { usedBy: username or null }
-const sessions = {};       // token -> username
-const gamesMap = {};       // gameId -> { name, placeId, players, version }
-const userScripts = {};    // username -> script
+const users = {};
+const keys = {};
+const sessions = {};
+const gamesMap = {};
+const userScripts = {};
 
 function hashPassword(pw) {
     return crypto.createHash('sha256').update(pw).digest('hex');
@@ -121,11 +121,11 @@ app.get('/api/admin/keys', authenticate, requireAdmin, (req, res) => {
 app.post('/api/games/update', (req, res) => {
     try {
         const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        console.log('Received game data:', JSON.stringify(data).substring(0, 200));
         const incomingGames = data.games || [];
         
         incomingGames.forEach(game => {
             if (!game.id) return;
-            // Overwrite with latest data (no summing)
             gamesMap[game.id] = {
                 name: game.name,
                 placeId: game.placeId,
