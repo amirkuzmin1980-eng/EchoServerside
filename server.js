@@ -4,11 +4,11 @@ const crypto = require('crypto');
 const app = express();
 
 // In‑memory stores
-const users = {};
-const keys = {};
-const sessions = {};
-const gamesMap = {};        // gameId -> { name, placeId, players, servers: [{ id, lastSeen }] }
-const userScripts = {};     // username -> script
+const users = {};          // username -> { passwordHash, isAdmin, usedKey }
+const keys = {};           // key -> { usedBy: username or null }
+const sessions = {};       // token -> username
+const gamesMap = {};       // gameId -> { name, placeId, players, version }
+const userScripts = {};    // username -> script
 
 function hashPassword(pw) {
     return crypto.createHash('sha256').update(pw).digest('hex');
@@ -63,18 +63,6 @@ console.log(`Admin key: ${adminKey}`);
 
 let targetUsername = "";
 let latestScript = "";
-
-// Clean up stale servers every 30 seconds
-setInterval(() => {
-    const now = Date.now();
-    for (const gameId in gamesMap) {
-        const game = gamesMap[gameId];
-        game.servers = game.servers.filter(srv => now - srv.lastSeen < 30000);
-        if (game.servers.length === 0) {
-            delete gamesMap[gameId];
-        }
-    }
-}, 30000);
 
 // ========== Public endpoints ==========
 app.post('/api/register', (req, res) => {
@@ -137,28 +125,13 @@ app.post('/api/games/update', (req, res) => {
         
         incomingGames.forEach(game => {
             if (!game.id) return;
-            const now = Date.now();
-            if (!gamesMap[game.id]) {
-                gamesMap[game.id] = {
-                    name: game.name,
-                    placeId: game.placeId,
-                    players: game.players,        // store global count
-                    servers: []
-                };
-            }
-            const entry = gamesMap[game.id];
-            // Update metadata (name, placeId) in case they changed
-            entry.name = game.name;
-            entry.placeId = game.placeId;
-            // Overwrite players with the latest global count (do NOT sum)
-            entry.players = game.players;
-            // Track servers (for the "X servers" badge)
-            const existing = entry.servers.find(s => s.id === game.serverId);
-            if (existing) {
-                existing.lastSeen = now;
-            } else {
-                entry.servers.push({ id: game.serverId, lastSeen: now });
-            }
+            // Overwrite with latest data (no summing)
+            gamesMap[game.id] = {
+                name: game.name,
+                placeId: game.placeId,
+                players: game.players,
+                version: game.version
+            };
         });
         res.send('OK');
     } catch (e) {
@@ -168,39 +141,13 @@ app.post('/api/games/update', (req, res) => {
 });
 
 app.get('/api/games', (req, res) => {
-    const gamesList = Object.values(gamesMap).map(game => ({
-        id: Object.keys(gamesMap).find(k => gamesMap[k] === game),
-        name: game.name,
-        placeId: game.placeId,
-        players: game.players,          // global active players
-        servers: game.servers.length    // number of reporting servers
-    }));
+    const gamesList = Object.values(gamesMap);
+    const totalPlayers = gamesList.reduce((sum, g) => sum + (parseInt(g.players) || 0), 0);
     res.json({
         total: gamesList.length,
-        players: gamesList.reduce((sum, g) => sum + (g.players || 0), 0),
+        players: totalPlayers,
         games: gamesList
     });
-});
-
-// ========== Player connection logging (optional) ==========
-app.post('/api/connect-game', (req, res) => {
-    try {
-        const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-        console.log(`[CONNECT] User ${data.roblox_userid} joined game ${data.game_id} (job ${data.job_id})`);
-        res.send('OK');
-    } catch (e) {
-        res.status(200).send('OK');
-    }
-});
-
-app.post('/api/disconnect-game', (req, res) => {
-    try {
-        const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-        console.log(`[DISCONNECT] User ${data.roblox_userid} left game ${data.game_id}`);
-        res.send('OK');
-    } catch (e) {
-        res.status(200).send('OK');
-    }
 });
 
 // ========== Settings / GUI endpoints ==========
@@ -220,7 +167,7 @@ app.post('/api/execute', (req, res) => {
         const script = req.body || "";
         if (targetUser) {
             userScripts[targetUser] = script;
-            console.log(`📝 Script stored for user: ${targetUser}, length: ${script.length}`);
+            console.log(`📝 Script stored for user: ${targetUser}`);
         } else {
             latestScript = script;
             console.log('📝 Script stored globally');
