@@ -9,11 +9,9 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.text({ type: 'text/plain' }));
 
 // In‑memory storage
-const games = new Map();                // key: placeId → game object
+const games = new Map();
 let currentLuaScript = "print('hello world')";
-
-// Verification storage
-const verificationRequests = new Map(); // key: username → { status: 'pending'|'verified', confirmedAt, playerInfo }
+let linkedUsername = '';               // The username to verify against
 
 // ========================
 // Game reporting
@@ -23,10 +21,8 @@ app.post('/api/report', (req, res) => {
   if (!game.id && !game.placeId) {
     return res.status(400).json({ error: 'Missing placeId' });
   }
-
   const placeId = game.id || game.placeId;
   const playing = game.players || game.playing || 0;
-
   const storedGame = {
     placeId: placeId,
     name: game.name || '',
@@ -42,7 +38,6 @@ app.post('/api/report', (req, res) => {
     joinUrl: `https://www.roblox.com/games/${placeId}/-`,
     reportedAt: Date.now()
   };
-
   games.set(placeId, storedGame);
   res.json({ success: true });
 });
@@ -60,19 +55,10 @@ app.get('/api/games', (req, res) => {
 // Script endpoints
 // ========================
 app.post('/api/set-script', (req, res) => {
-  const { script, username } = req.body;
+  const { script } = req.body;
   if (typeof script !== 'string') {
     return res.status(400).json({ error: 'Missing script' });
   }
-
-  // Optional: enforce verification
-  if (username) {
-    const vr = verificationRequests.get(username);
-    if (!vr || vr.status !== 'verified') {
-      return res.status(403).json({ error: 'Player not verified' });
-    }
-  }
-
   currentLuaScript = script;
   res.json({ success: true });
 });
@@ -86,66 +72,28 @@ app.get('/api/get-lua', (req, res) => {
 });
 
 // ========================
-// Verification endpoints
+// Username linking (for verification)
 // ========================
-// Request verification for a username (from dashboard)
-app.post('/api/request-verification', (req, res) => {
+app.post('/api/set-username', (req, res) => {
   const { username } = req.body;
-  if (!username || typeof username !== 'string') {
-    return res.status(400).json({ error: 'Username required' });
+  if (typeof username !== 'string') {
+    return res.status(400).json({ error: 'Missing username' });
   }
-  verificationRequests.set(username, { status: 'pending', requestedAt: Date.now() });
-  res.json({ success: true });
+  linkedUsername = username.trim();
+  console.log(`🔗 Linked username set to: ${linkedUsername}`);
+  res.json({ success: true, username: linkedUsername });
 });
 
-// Check verification status (from dashboard)
-app.get('/api/check-verification', (req, res) => {
-  const { username } = req.query;
-  if (!username) return res.status(400).json({ error: 'Username required' });
-  const vr = verificationRequests.get(username);
-  res.json({
-    verified: vr?.status === 'verified',
-    status: vr?.status || 'none'
-  });
+app.get('/api/get-username', (req, res) => {
+  res.json({ username: linkedUsername });
 });
 
-// Get pending verification request (called by Lua executor)
-app.get('/api/pending-verification', (req, res) => {
-  // Return the first pending request (could be improved with a queue)
-  for (const [username, vr] of verificationRequests.entries()) {
-    if (vr.status === 'pending') {
-      return res.json({ username, requested: true });
-    }
-  }
-  res.json({ requested: false });
-});
-
-// Confirm verification (called by Lua executor when player matches)
-app.post('/api/confirm-verification', (req, res) => {
-  const { username, playerName, userId } = req.body;
-  if (!username) return res.status(400).json({ error: 'Username required' });
-  const vr = verificationRequests.get(username);
-  if (!vr) return res.status(404).json({ error: 'No pending request for this username' });
-  if (vr.status === 'verified') return res.json({ already: true });
-
-  // Mark as verified
-  vr.status = 'verified';
-  vr.confirmedAt = Date.now();
-  vr.playerInfo = { name: playerName, userId };
-  res.json({ success: true });
-});
-
-// Cleanup old games and verification requests
+// Cleanup old games
 setInterval(() => {
   const now = Date.now();
   const oneHour = 60 * 60 * 1000;
   for (const [placeId, game] of games) {
     if (now - game.reportedAt > oneHour) games.delete(placeId);
-  }
-  for (const [username, vr] of verificationRequests) {
-    if (now - vr.requestedAt > 10 * 60 * 1000) { // expire after 10 minutes
-      verificationRequests.delete(username);
-    }
   }
 }, 60 * 1000);
 
