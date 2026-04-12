@@ -12,9 +12,9 @@ const PORT = process.env.PORT || 3000;
 //    (Keep the quotes, just replace the text inside)
 // =====================================================
 const DISCORD_CLIENT_ID = '1492694231729307822';
-const DISCORD_CLIENT_SECRET = 'NTelU-wqi7kOuKg1KaQ3apw0-0LpflWW';
+const DISCORD_CLIENT_SECRET = 'g8Ob4kVb2g_QP8yc55lWNUrsnMvLAumM';
 const GUILD_ID = '1465969033915531451';
-const BOT_TOKEN = 'MTQ5MjY5NDIzMTcyOTMwNzgyMg.GCh-kG.ssXY7l04pT42lfcvSwzF8aPn7cXwqB72jwUW4o';
+const BOT_TOKEN = 'MTQ5MjY5NDIzMTcyOTMwNzgyMg.GjzxhB.vrZO_sYnTw-StXnrMbTeSzfg77BrSVNeN3M4oI';
 // =====================================================
 
 const DISCORD_REDIRECT_URI = 'https://hax-api-xdi2.onrender.com/api/auth/discord/callback';
