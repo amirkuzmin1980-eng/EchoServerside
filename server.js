@@ -2,18 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const bcrypt = require('bcrypt');
-const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// =====================================================
-// 🔐 CLOUDFLARE TURNSTILE SECRET KEY
-// =====================================================
-// For local testing only: replace the string below with your actual secret.
-// In production, remove this line and use environment variables.
-const TURNSTILE_SECRET = '0x4AAAAAAC8eRb--cS_EncVlh12KD_uWZtA';
-// =====================================================
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -40,24 +31,6 @@ const validKeys = new Map();
   });
   console.log('✅ Admin account ready');
 })();
-
-// Turnstile verification helper
-async function verifyTurnstile(token) {
-  if (!TURNSTILE_SECRET || TURNSTILE_SECRET === '0x4AAAAAAC8eRb--cS_EncVlh12KD_uWZtA') {
-    console.warn('⚠️ Turnstile secret not set – skipping verification.');
-    return true;
-  }
-  try {
-    const res = await axios.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      secret: TURNSTILE_SECRET,
-      response: token
-    });
-    return res.data.success;
-  } catch (err) {
-    console.error('Turnstile error:', err.message);
-    return false;
-  }
-}
 
 // Admin key generation
 app.post('/api/admin/generate-key', (req, res) => {
@@ -87,15 +60,12 @@ app.post('/api/verify-key', (req, res) => {
   res.json({ valid: true });
 });
 
-// Signup
+// Signup (no Turnstile)
 app.post('/api/signup', async (req, res) => {
-  const { key, email, password, username, turnstileToken } = req.body;
-  if (!key || !email || !password || !username || !turnstileToken) {
+  const { key, email, password, username } = req.body;
+  if (!key || !email || !password || !username) {
     return res.status(400).json({ error: 'Missing fields' });
   }
-
-  const turnstileValid = await verifyTurnstile(turnstileToken);
-  if (!turnstileValid) return res.status(400).json({ error: 'Turnstile verification failed' });
 
   const keyData = validKeys.get(key);
   if (!keyData) return res.status(400).json({ error: 'Invalid or expired key' });
@@ -109,15 +79,12 @@ app.post('/api/signup', async (req, res) => {
   res.json({ success: true });
 });
 
-// Login
+// Login (no Turnstile)
 app.post('/api/login', async (req, res) => {
-  const { email, password, turnstileToken } = req.body;
-  if (!email || !password || !turnstileToken) {
+  const { email, password } = req.body;
+  if (!email || !password) {
     return res.status(400).json({ error: 'Missing fields' });
   }
-
-  const turnstileValid = await verifyTurnstile(turnstileToken);
-  if (!turnstileValid) return res.status(400).json({ error: 'Turnstile verification failed' });
 
   const user = users.get(email);
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
